@@ -51,10 +51,10 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
     PyObject *result = NULL;
     PyObject *arguments;
     float d = INFINITY;
-    
+
     if (distance_callback != NULL) {
 		arguments = Py_BuildValue("(OO)", *feature1, *feature2);
-		
+//    free(feature2);
 		result = PyObject_CallObject(distance_callback, arguments);
 		Py_DECREF(arguments);
 		if (result != NULL) {
@@ -80,7 +80,7 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
  * The Python object must be a 2-tuple.  Its first entry is interpreted as
  * the list of features; the second entry is the list of weights.  Both
  * entries must be Python lists of identical length.
- * 
+ *
  * Any Python object can be used as features: the EMD implementation treats
  * them as opaque objects and they only serve as arguments to the ground
  * distance function to build the distance matrix.  The weights list, however,
@@ -96,7 +96,7 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
 						"expected a tuple of size two (features,weights)");
 		return NULL;
     }
-    
+
     // Does it have length 2?
     Py_ssize_t tuple_size = PyTuple_Size($input);
     if (tuple_size != 2) {
@@ -104,7 +104,7 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
 						"expected a tuple of size two (features,weights)");
 		return NULL;
     }
-    
+
     // Are the entries lists of the same length?
     PyObject *features = PyTuple_GetItem($input,0);
     PyObject *weights = PyTuple_GetItem($input,1);
@@ -116,7 +116,7 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
 		PyErr_SetString(PyExc_TypeError, "second entry (weights) must be a list");
 		return NULL;
     }
-    
+
     Py_ssize_t features_count = PyList_Size(features);
     Py_ssize_t weights_count = PyList_Size(weights);
     if (features_count != weights_count) {
@@ -124,32 +124,32 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
 			"tuple entries (features,weights) must have same length");
 	return NULL;
     }
-    
+
     // Allocate some memory for constructing the signature_t structure.
     PyObject **features_array = (PyObject **) malloc(features_count * sizeof(PyObject *));
     float *weights_array = (float *) malloc(features_count * sizeof(float));
-    
+
     // Fill the weights and feature arrays.
     for (i = 0; i < weights_count; ++i) {
-		PyObject *w = PyList_GetItem(weights, i);
-		if (PyFloat_Check(w)) {
-		    // FIXME The interface requires downcasting doubles to floats...
-		    weights_array[i] = (float) PyFloat_AsDouble(w);
-		    features_array[i] = PyList_GetItem(features, i);
-		    Py_XINCREF(features_array[i]);
-		} else {
-		    PyErr_SetString(PyExc_TypeError, "weights must be floats");
-		    	for (j = i; j > 0; j++) {
-				Py_XDECREF(features_array[i]);
-		    }
-		    free(weights_array);
-		    free(features_array);
-		    return NULL;
-		}
+  		PyObject *w = PyList_GetItem(weights, i);
+  		if (PyFloat_Check(w)) {
+  		    // FIXME The interface requires downcasting doubles to floats...
+  		    weights_array[i] = (float) PyFloat_AsDouble(w);
+  		    features_array[i] = PyList_GetItem(features, i);
+  		    Py_XINCREF(features_array[i]);
+  		} else {
+  		    PyErr_SetString(PyExc_TypeError, "weights must be floats");
+  		    	for (j = i; j >= 0; j--) {
+  				Py_XDECREF(features_array[j]);
+  		    }
+  		    free(weights_array);
+  		    free(features_array);
+  		    return NULL;
+  		}
     }
-    
+
     // Finally, create and return the (pointer to) the signature_t structure.
-    // ($1 is a placeholder for the variable that receives the converted value.) 
+    // ($1 is a placeholder for the variable that receives the converted value.)
     $1 = (signature_t *) malloc(sizeof(signature_t));
     $1->n = (int) features_count;
     $1->Features = features_array;
@@ -162,6 +162,9 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
  **/
 %typemap(freearg) signature_t * {
 	if ($1 != NULL) {
+      for (int j = $1->n - 1; j >= 0; j--) {
+        Py_CLEAR($1->Features[j]);
+      }
 	    free((PyObject **) $1->Features);
 	    free((float *) $1->Weights);
 	    free((signature_t *) $1);
@@ -176,13 +179,13 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
  * The converter stores the given Python callable object p in a global
  * variable 'distance_callback' and then returns a pointer to the (one)
  * C function 'distance_from_callback' that uses p to compute the distance.
- * 
+ *
  * The reason for this indirect approach is that Python callables cannot
  * be cast into C function pointers directly.
  */
 %typemap(in) float (*)(feature_t *, feature_t *)  {
     PyObject *new_distance_callback = $input;
-    
+
     if (!PyCallable_Check(new_distance_callback)) {
 		PyErr_SetString(PyExc_TypeError, "parameter must be callable");
 		// TODO Additional checks about accepted parameters go here.
@@ -192,7 +195,7 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
     if (distance_callback != NULL)
 		Py_XDECREF(distance_callback);  		/* Dispose of previous callback */
     distance_callback = new_distance_callback;	/* Remember new callback */
-    
+
     // Always return the same function (that uses the callback variable).
     $1 = &distance_from_callback;
 }
