@@ -54,6 +54,7 @@ float distance_from_callback(feature_t *feature1, feature_t *feature2)
     
     if (distance_callback != NULL) {
 		arguments = Py_BuildValue("(OO)", *feature1, *feature2);
+		
 		result = PyObject_CallObject(distance_callback, arguments);
 		Py_DECREF(arguments);
 		if (result != NULL) {
